@@ -1,3 +1,6 @@
 [submodule "lwip-contrib"]
 	path = lwip-contrib
 	url = git://git.sv.gnu.org/lwip/lwip-contrib.git
+[submodule "asio"]
+	path = asio
+	url = git@github.com:chriskohlhoff/asio.git
