@@ -11,6 +11,9 @@ env = Environment(
     LINKFLAGS = '-g -Os -march=native -pthread ',
     LINK = 'clang++')
 
+
+env.ParseConfig('pkg-config --cflags --libs libglog')
+
 env.Program('sockslwip', ['main.cpp'])
 
 # EOF
