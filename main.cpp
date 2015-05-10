@@ -11,7 +11,9 @@ class SocksClient final : public std::enable_shared_from_this<SocksClient>
   using self_t = std::shared_ptr<SocksClient>;
 
   asio::io_service &io_service;
-  tcp::socket       socket;
+
+  // This is the socket that is connected to the SOCKS client;
+  tcp::socket socket;
 
   enum {
     // We need to read this many bytes from a commmand to figure out
@@ -95,6 +97,9 @@ public:
       LOG(ERROR) << "Only domain names supported for now.";
     }
 
+    const char *n = reinterpret_cast<const char *>(rcv_buffer.data() + INITIAL_COMMAND_BYTES);
+    std::string name (n, rcv_buffer.at(INITIAL_COMMAND_BYTES - 1));
+    LOG(INFO) << "Name: " << name;
 
   }
 
