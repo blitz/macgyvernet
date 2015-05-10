@@ -39,13 +39,6 @@
 #define __LWIPOPTS_H__
 
 /*
- * Include user defined options first. Anything not defined in these files
- * will be set to standard values. Override anything you dont like!
- */
-#include "lwipopts.h"
-#include "lwip/debug.h"
-
-/*
    -----------------------------------------------
    ---------- Platform specific locking ----------
    -----------------------------------------------
@@ -382,7 +375,7 @@
 /**
  * LWIP_NETCONN==1: Enable Netconn API (require to use api_lib.c)
  */
-#define LWIP_NETCONN                    1
+#define LWIP_NETCONN                    0
 
 /*
    ------------------------------------
@@ -392,7 +385,7 @@
 /**
  * LWIP_SOCKET==1: Enable Socket API (require to use sockets.c)
  */
-#define LWIP_SOCKET                     1
+#define LWIP_SOCKET                     0
 
 /*
    ----------------------------------------

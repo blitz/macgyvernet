@@ -2,9 +2,9 @@
 #include <asio.hpp>
 #include <glog/logging.h>
 
-using asio::ip::tcp;
+#include "sockslwip.hpp"
 
-#define READWRITE_CB(self, method) [this, self] (const asio::error_code &error, size_t len) { method(error, len); }
+using asio::ip::tcp;
 
 class SocksClient final : public std::enable_shared_from_this<SocksClient>
 {
@@ -95,6 +95,7 @@ public:
 
     if (at != DOMAINNAME) {
       LOG(ERROR) << "Only domain names supported for now.";
+      return;
     }
 
     const char *n = reinterpret_cast<const char *>(rcv_buffer.data() + INITIAL_COMMAND_BYTES);
@@ -113,7 +114,6 @@ public:
     CHECK_EQ(len, INITIAL_COMMAND_BYTES);
 
     auto self = shared_from_this();
-
     uint8_t version = rcv_buffer.at(0);
 
     if (version != SOCKS_VERSION) {
@@ -138,7 +138,7 @@ public:
 
     // Wait for rest of command packet.
     asio::async_read(socket, asio::buffer(rcv_buffer.begin() + INITIAL_COMMAND_BYTES, plen),
-                     READWRITE_CB(self, command_received_cb));
+                     ASIO_CB_SHARED(self, command_received_cb));
   }
 
   // Called when we have successfully replied to the client's auth
@@ -154,7 +154,7 @@ public:
 
     // Wait for command packet.
     asio::async_read(socket, asio::buffer(rcv_buffer, INITIAL_COMMAND_BYTES),
-                     READWRITE_CB(self, read_command_first_cb));
+                     ASIO_CB_SHARED(self, read_command_first_cb));
   }
 
   // The client has sent his list of authentication methods.
@@ -179,7 +179,7 @@ public:
         static uint8_t version_response[] { SOCKS_VERSION, NO_AUTHENTICATION };
 
         asio::async_write(socket, asio::buffer(version_response, sizeof(version_response)),
-                          READWRITE_CB(self, version_written_cb));
+                          ASIO_CB_SHARED(self, version_written_cb));
         return;
       }
 
@@ -212,7 +212,7 @@ public:
     // Read method data.
     CHECK(rcv_buffer.size() >= 2 + methods);
     asio::async_read(socket, asio::buffer(rcv_buffer.begin() + 2, methods),
-                     READWRITE_CB(self, methods_received_cb));
+                     ASIO_CB_SHARED(self, methods_received_cb));
   }
 
 
@@ -225,7 +225,7 @@ public:
     // receive this in two parts. First the two-byte header and the
     // methods data.
 
-    asio::async_read(socket, asio::buffer(rcv_buffer, 2), READWRITE_CB(self, hello_received_cb));
+    asio::async_read(socket, asio::buffer(rcv_buffer, 2), ASIO_CB_SHARED(self, hello_received_cb));
   }
 
   ~SocksClient() {
@@ -288,6 +288,9 @@ int main(int argc, char **argv)
 
   try {
     static asio::io_service io;
+
+    // This initializes lwIP.
+    initialize_backend(io);
 
     auto server = SocksServer::create(io, 8080);
 
