@@ -11,6 +11,7 @@
 #include <glog/logging.h>
 #include <cstring>
 #include <array>
+#include <system_error>
 
 #include <lwip/init.h>
 #include <lwip/netif.h>
@@ -25,7 +26,7 @@ static int open_tun(const char *name)
   int fd, err;
 
   if ((fd = open("/dev/net/tun", O_RDWR)) < 0) {
-    return -1;
+    throw std::system_error(std::error_code(errno, std::system_category()), "open");
   }
 
   memset(&ifr, 0, sizeof(ifr));
@@ -36,7 +37,7 @@ static int open_tun(const char *name)
 
   if ((err = ioctl(fd, TUNSETIFF, (void *) &ifr)) < 0) {
     close(fd);
-    return -1;
+    throw std::system_error(std::error_code(errno, std::system_category()), "ioctl");
   }
 
   LOG(INFO) << ifr.ifr_name << " opened.";
