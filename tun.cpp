@@ -5,6 +5,7 @@
 #include <fcntl.h>
 #include <linux/if_tun.h>
 
+#include <asio/write.hpp>
 #include <asio/io_service.hpp>
 #include <asio/posix/stream_descriptor.hpp>
 
@@ -98,6 +99,20 @@ class TunInterface : public netif {
   {
     CHECK_EQ(netif, this);
     LOG(INFO) << "lwIP sends!";
+
+    // We need a linear pbuf.
+    assert(p->next == nullptr);
+
+    // Mark buffer as still being in use.
+    pbuf_ref(p);
+
+    asio::async_write(tun_fd, asio::buffer(p->payload, p->len),
+                      [p] (const asio::error_code &error, size_t len) {
+                        if (error) {
+                          LOG(ERROR) << "Error while sending packet: " << error;
+                        }
+                        pbuf_free(p);
+                      });
 
     return ERR_OK;
   }
