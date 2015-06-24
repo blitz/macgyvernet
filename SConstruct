@@ -19,9 +19,9 @@ env = Environment(
 
 env.ParseConfig('pkg-config --cflags --libs libglog')
 
-env.Program('sockslwip',
-            ['main.cpp', 'tun.cpp',
-             'lwip-contrib/ports/unix/sys_arch.c'] +
+env.Program('macgyvernet',
+            Glob('*.cpp') +
+            ['lwip-contrib/ports/unix/sys_arch.c'] +
             Glob('lwip/src/core/*.c') +
             Glob('lwip/src/core/ipv4/*.c') +            
             Glob('lwip/src/api/*.c') +

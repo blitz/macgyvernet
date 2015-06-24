@@ -3,6 +3,7 @@
 #include <glog/logging.h>
 
 #include "sockslwip.hpp"
+#include "logo.hpp"
 
 using asio::ip::tcp;
 
@@ -284,7 +285,7 @@ int main(int argc, char **argv)
 
   // Log to stderr for now.
   FLAGS_logtostderr = 1;
-  LOG(INFO) << "Starting...";
+  LOG(INFO) << "When your corporate VPN policy sucks, you turn to...\n" << logo << "\n";
 
   try {
     static asio::io_service io;
