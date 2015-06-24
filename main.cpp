@@ -46,20 +46,6 @@ class SocksClient final : public std::enable_shared_from_this<SocksClient>
   // Contains incoming packet data
   std::array<uint8_t, 1 << 16> rcv_buffer;
 
-public:
-
-  tcp::socket &get_socket() { return socket; }
-
-  SocksClient(asio::io_service &io)
-    : io_service(io), socket(io)
-  { }
-
-
-  static self_t create(asio::io_service &io)
-  {
-    return std::make_shared<SocksClient>(io);
-  }
-
   static const char *command_string(COMMAND c)
   {
     switch (c) {
@@ -80,6 +66,38 @@ public:
     }
   }
 
+  void handle_connect_by_name()
+  {
+
+    const char *n = reinterpret_cast<const char *>(rcv_buffer.data() + INITIAL_COMMAND_BYTES);
+    std::string name (n, rcv_buffer.at(INITIAL_COMMAND_BYTES - 1));
+    LOG(INFO) << "Name: " << name;
+
+    LOG(ERROR) << "XXX Implement connect by name";
+  }
+
+  void handle_connect_by_ipv4()
+  {
+    LOG(ERROR) << "XXX Implement connect by IPv4";
+  }
+
+  void handle_connect()
+  {
+    ADDRESS_TYPE at = ADDRESS_TYPE(rcv_buffer.at(3));
+
+    switch (at) {
+    case ADDRESS_TYPE::DOMAINNAME:
+      handle_connect_by_name();
+      break;
+    case ADDRESS_TYPE::IPV4:
+      handle_connect_by_ipv4();
+      break;
+    default:
+      LOG(ERROR) << "Address type " << at << " not supported.";
+      break;
+    }
+  }
+
   void command_received_cb(const asio::error_code &error, size_t len)
   {
     if (error) {
@@ -94,15 +112,15 @@ public:
 
     LOG(INFO) << "Command '" << command_string(cmd) << "' Address '" << address_type_string(at) << "'";
 
-    if (at != DOMAINNAME) {
-      LOG(ERROR) << "Only domain names supported for now.";
-      return;
+    switch (cmd) {
+    case COMMAND::CONNECT:
+      handle_connect();
+      break;
+
+    default:
+      LOG(ERROR) << "Can't handle command.";
+      break;
     }
-
-    const char *n = reinterpret_cast<const char *>(rcv_buffer.data() + INITIAL_COMMAND_BYTES);
-    std::string name (n, rcv_buffer.at(INITIAL_COMMAND_BYTES - 1));
-    LOG(INFO) << "Name: " << name;
-
   }
 
   void read_command_first_cb(const asio::error_code &error, size_t len)
@@ -216,6 +234,18 @@ public:
                      ASIO_CB_SHARED(self, methods_received_cb));
   }
 
+public:
+
+  tcp::socket &get_socket() { return socket; }
+
+  SocksClient(asio::io_service &io)
+    : io_service(io), socket(io)
+  { }
+
+  static self_t create(asio::io_service &io)
+  {
+    return std::make_shared<SocksClient>(io);
+  }
 
   void start()
   {
@@ -234,6 +264,8 @@ public:
   }
 };
 
+/// Handles accepting connections and creates a SocksClient instance
+/// for each connection.
 class SocksServer : public std::enable_shared_from_this<SocksServer>
 {
   asio::io_service &io_service;
