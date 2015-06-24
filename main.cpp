@@ -2,7 +2,7 @@
 #include <asio.hpp>
 #include <glog/logging.h>
 
-#include "sockslwip.hpp"
+#include "macgyvernet.hpp"
 #include "logo.hpp"
 
 using asio::ip::tcp;

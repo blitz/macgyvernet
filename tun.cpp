@@ -19,7 +19,7 @@
 #include <lwip/tcpip.h>
 #include <lwip/pbuf.h>
 
-#include "sockslwip.hpp"
+#include "macgyvernet.hpp"
 
 static int open_tun(const char *name)
 {
