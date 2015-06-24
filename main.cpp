@@ -2,6 +2,9 @@
 #include <asio.hpp>
 #include <glog/logging.h>
 
+#include <lwip/tcpip.h>
+#include <lwip/tcp.h>
+
 #include "macgyvernet.hpp"
 #include "logo.hpp"
 
@@ -16,10 +19,22 @@ class SocksClient final : public std::enable_shared_from_this<SocksClient>
   // This is the socket that is connected to the SOCKS client;
   tcp::socket socket;
 
+  // lwIP's connection identifier.
+  struct tcp_pcb *tcp_pcb = nullptr;
+
+  struct PointerWrap {
+    std::shared_ptr<SocksClient> ptr;
+  };
+
+  PointerWrap *tcp_pcb_arg = nullptr;
+
   enum {
     // We need to read this many bytes from a commmand to figure out
     // how long it is.
     INITIAL_COMMAND_BYTES = 5,
+
+    // At this position in a command packet does the address start.
+    ADDRESS_START_OFFSET = 4,
   };
 
   enum VERSION : uint8_t {
@@ -69,16 +84,104 @@ class SocksClient final : public std::enable_shared_from_this<SocksClient>
   void handle_connect_by_name()
   {
 
-    const char *n = reinterpret_cast<const char *>(rcv_buffer.data() + INITIAL_COMMAND_BYTES);
-    std::string name (n, rcv_buffer.at(INITIAL_COMMAND_BYTES - 1));
+    const char *n = reinterpret_cast<const char *>(rcv_buffer.data() + ADDRESS_START_OFFSET + 1);
+    std::string name (n, rcv_buffer.at(ADDRESS_START_OFFSET));
     LOG(INFO) << "Name: " << name;
 
     LOG(ERROR) << "XXX Implement connect by name";
   }
 
+  void _connection_hard_abort()
+  {
+    asio::error_code ec { asio::error::operation_aborted };
+    socket.close(ec);
+
+    if (tcp_pcb) {
+      tcp_abort(tcp_pcb);
+      tcp_pcb = nullptr;
+    }
+
+    auto *arg = tcp_pcb_arg;
+    if (arg) {
+      tcp_pcb_arg = nullptr;
+      delete arg;
+    }
+  }
+
+  /// Tells lwIP to abort the connection. If this is called from lwip
+  /// event handlers the return value needs to be ERR_ABRT to prevent
+  /// double frees.
+  void connection_hard_abort()
+  {
+    // Protect `this' from disappearing.
+    auto sthis = shared_from_this();
+    _connection_hard_abort();
+  }
+
+  err_t lwip_connected_cb(struct tcp_pcb *pcb, err_t err)
+  {
+    assert(pcb == tcp_pcb);
+
+    LOG(INFO) << "Connected: " << int(err);
+
+    connection_hard_abort();
+    return ERR_ABRT;
+
+  }
+
+  static err_t static_lwip_connected_cb(void *arg, struct tcp_pcb *pcb, err_t err)
+  {
+    auto *wrap = static_cast<PointerWrap *>(arg);
+    return wrap->ptr->lwip_connected_cb(pcb, err);
+  }
+
+  static void static_lwip_err_cb(void *arg, err_t err)
+  {
+    auto *wrap = static_cast<PointerWrap *>(arg);
+    LOG(ERROR) << "Error callback from lwIP: " << err;
+
+    // XXX Not sure whether this leaks memory.
+    wrap->ptr->tcp_pcb = nullptr;
+
+    wrap->ptr->connection_hard_abort();
+  }
+
+  /// Allocate a lwIP PCB and configure it with handler functions.
+  bool ensure_tcp_pcb()
+  {
+    // Allocate new PCB from lwIP;
+    if ((tcp_pcb = tcp_new()) == nullptr) {
+      LOG(ERROR) << "lwIP out of memory. Couldn't allocate TCP PCB.";
+      return false;
+    }
+
+    // Create a shared_ptr pointing to this client that will keep the
+    // client alive as long as lwIP has the connection open.
+    tcp_pcb_arg = new PointerWrap { shared_from_this() };
+
+    tcp_arg(tcp_pcb, tcp_pcb_arg);
+
+    return true;
+  }
+
   void handle_connect_by_ipv4()
   {
-    LOG(ERROR) << "XXX Implement connect by IPv4";
+    ensure_tcp_pcb();
+
+    ip_addr_t ip_addr;
+
+    memcpy(&ip_addr, rcv_buffer.data() + ADDRESS_START_OFFSET, sizeof(ip_addr.addr));
+
+    uint16_t port = rcv_buffer.at(ADDRESS_START_OFFSET + 4) << 8 | rcv_buffer.at(ADDRESS_START_OFFSET + 5);
+
+    LOG(INFO) << "Connecting to " << std::hex << ip_addr.addr << " port " << port;
+
+    err_t err = tcp_connect(tcp_pcb, &ip_addr, port, static_lwip_connected_cb);
+
+    if (err != ERR_OK) {
+      LOG(ERROR) << "tcp_connect failed with " << int(err);
+      connection_hard_abort();
+    }
   }
 
   void handle_connect()
@@ -260,6 +363,7 @@ public:
   }
 
   ~SocksClient() {
+    _connection_hard_abort();
     LOG(INFO) << "Connection terminated.";
   }
 };

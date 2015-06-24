@@ -7,6 +7,7 @@
 
 #include <asio/write.hpp>
 #include <asio/io_service.hpp>
+#include <asio/deadline_timer.hpp>
 #include <asio/posix/stream_descriptor.hpp>
 
 #include <glog/logging.h>
@@ -51,6 +52,8 @@ class TunInterface : public netif {
   asio::posix::stream_descriptor tun_fd;
 
   std::array<uint8_t, 1500> incoming_buffer;
+
+  asio::deadline_timer timer;
 
   void read_cb(const asio::error_code &error, size_t len)
   {
@@ -119,7 +122,7 @@ class TunInterface : public netif {
 
 public:
   TunInterface(asio::io_service &io, int fd)
-    : tun_fd(io, fd)
+    : tun_fd(io, fd), timer(io)
   {
     memset(static_cast<netif *>(this), 0, sizeof(netif));
   }
@@ -132,6 +135,19 @@ public:
   static err_t static_packet_output(netif *netif, pbuf *p, ip_addr_t *ipaddr)
   {
     return static_cast<TunInterface *>(netif)->packet_output(netif, p, ipaddr);
+  }
+
+  void start_timer()
+  {
+    timer.expires_from_now(boost::posix_time::milliseconds(100));
+    timer.async_wait([this] (const asio::error_code &err) {
+        if (err) {
+          LOG(ERROR) << "Timer error: " << err;
+          return;
+        }
+
+        start_timer();
+      });
   }
 };
 
@@ -158,8 +174,9 @@ void initialize_backend(asio::io_service &io)
       netif_set_default(tunif);
       netif_set_up(tunif);
 
-    }, &tunif);
+      tunif->start_timer();
 
+    }, &tunif);
 
 }
 
