@@ -409,4 +409,12 @@
 
 /* Misc */
 
+/* #define LWIP_DEBUG 1 */
+/* #define LWIP_DBG_TYPES_ON LWIP_DBG_TRACE */
+/* #define LWIP_DBG_MIN_LEVEL LWIP_DBG_LEVEL_ALL */
+/* #define PBUF_DEBUG LWIP_DBG_ON */
+/* #define NETIF_DEBUG LWIP_DBG_ON */
+/* #define IP_DEBUG LWIP_DBG_ON */
+/* #define ICMP_DEBUG LWIP_DBG_ON   */
+
 #endif /* __LWIPOPTS_H__ */
