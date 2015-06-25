@@ -91,6 +91,9 @@ class SocksClient final : public std::enable_shared_from_this<SocksClient>
     LOG(ERROR) << "XXX Implement connect by name";
   }
 
+
+  /// Same as connection_hard_abort, but can be used in the
+  /// destructor.
   void _connection_hard_abort()
   {
     asio::error_code ec { asio::error::operation_aborted };
@@ -118,15 +121,57 @@ class SocksClient final : public std::enable_shared_from_this<SocksClient>
     _connection_hard_abort();
   }
 
+  void data_received_cb(const asio::error_code &error, size_t len)
+  {
+    LOG(ERROR) << "Dropping " << len << " bytes.";
+
+    // XXX When we get EOF, shutdown the TCP connection gracefully.
+
+    if (error) {
+      LOG(ERROR) << "Error while receiving data: " << error.message();
+      connection_hard_abort();
+      return;
+    }
+
+    // Wait for more data.
+    auto self = shared_from_this();
+    asio::async_read(socket, asio::buffer(rcv_buffer.begin(), rcv_buffer.size()),
+                     ASIO_CB_SHARED(self, data_received_cb));
+  }
+
+  void connect_success_written_cb(const asio::error_code &error, size_t)
+  {
+    if (error) {
+      LOG(ERROR) << "Error while sending CONNECT response: " << error.message();
+      connection_hard_abort();
+      return;
+    }
+
+    // Wait for data.
+    asio::error_code ec;
+    data_received_cb(ec, 0);
+  }
+
+
   err_t lwip_connected_cb(struct tcp_pcb *pcb, err_t err)
   {
     assert(pcb == tcp_pcb);
 
-    LOG(INFO) << "Connected: " << int(err);
+    if (err != ERR_OK) {
+      LOG(ERROR) << "Connection failed: " << int(err);
+      connection_hard_abort();
+      return ERR_ABRT;
+    }
 
-    connection_hard_abort();
-    return ERR_ABRT;
+    LOG(INFO) << "Connected.";
 
+    static char connect_response[10] = { SOCKS_VERSION, 0 };
+
+    auto self = shared_from_this();
+    asio::async_write(socket, asio::buffer(connect_response, sizeof(connect_response)),
+                      ASIO_CB_SHARED(self, connect_success_written_cb));
+
+    return ERR_OK;
   }
 
   static err_t static_lwip_connected_cb(void *arg, struct tcp_pcb *pcb, err_t err)
