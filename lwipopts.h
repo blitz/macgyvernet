@@ -55,7 +55,7 @@
  * NO_SYS==1: Provides VERY minimal functionality. Otherwise,
  * use lwIP facilities.
  */
-#define NO_SYS                          0
+#define NO_SYS                          1
 
 /*
    ------------------------------------
@@ -137,7 +137,7 @@
  * MEMP_NUM_SYS_TIMEOUT: the number of simulateously active timeouts.
  * (requires NO_SYS==0)
  */
-#define MEMP_NUM_SYS_TIMEOUT            3
+#define MEMP_NUM_SYS_TIMEOUT            8
 
 /**
  * MEMP_NUM_NETBUF: the number of struct netbufs.
@@ -239,6 +239,8 @@
  * IP_DEFAULT_TTL: Default value for Time-To-Live used by transport layers.
  */
 #define IP_DEFAULT_TTL                  255
+
+#define LWIP_IPV4                       1
 
 /*
    ----------------------------------

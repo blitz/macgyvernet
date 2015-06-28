@@ -17,8 +17,9 @@
 
 #include <lwip/init.h>
 #include <lwip/netif.h>
-#include <lwip/tcpip.h>
+#include <lwip/ip.h>
 #include <lwip/pbuf.h>
+#include <lwip/timers.h>
 
 #include "macgyvernet.hpp"
 
@@ -150,6 +151,7 @@ public:
           return;
         }
 
+        sys_check_timeouts();
         start_timer();
       });
   }
@@ -162,26 +164,25 @@ void initialize_backend(asio::io_service &io)
 
   static TunInterface tunif { io, fd };
 
-  tcpip_init([] (void *arg) {
-      TunInterface *tunif = static_cast<TunInterface *>(arg);
-      LOG(INFO) << "lwIP initialized. Version: " << std::hex << LWIP_VERSION;
+  lwip_init();
 
-      ip_addr_t ipaddr, netmask, gw;
 
-      IP4_ADDR(&gw, 10,0,0,1);
-      IP4_ADDR(&ipaddr, 10,0,0,100);
-      IP4_ADDR(&netmask, 255,0,0,0);
+  LOG(INFO) << "lwIP initialized. Version: " << std::hex << LWIP_VERSION;
 
-      netif_add(tunif, &ipaddr, &netmask, &gw, tunif,
-                &TunInterface::static_netif_init, tcpip_input);
+  ip_addr_t ipaddr, netmask, gw;
 
-      netif_set_default(tunif);
-      netif_set_up(tunif);
-      netif_set_link_up(tunif);
+  IP4_ADDR(&gw, 10,0,0,1);
+  IP4_ADDR(&ipaddr, 10,0,0,100);
+  IP4_ADDR(&netmask, 255,0,0,0);
 
-      tunif->start_timer();
+  netif_add(&tunif, &ipaddr, &netmask, &gw, &tunif,
+            &TunInterface::static_netif_init, ip4_input);
 
-    }, &tunif);
+  netif_set_default(&tunif);
+  netif_set_up(&tunif);
+  netif_set_link_up(&tunif);
+
+  tunif.start_timer();
 
 }
 

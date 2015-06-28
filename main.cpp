@@ -1,6 +1,5 @@
 #include <iostream>
 #include <asio.hpp>
-#include <thread>
 #include <glog/logging.h>
 
 #include <lwip/tcpip.h>
@@ -65,6 +64,9 @@ class SocksClient final : public std::enable_shared_from_this<SocksClient>
   // IF true, an async_read is in progress.
   bool async_read_in_progress = false;
 
+  // Set to true, if tcp_close was called.
+  bool close_in_progress = false;
+
   static const char *command_string(COMMAND c)
   {
     switch (c) {
@@ -100,7 +102,10 @@ class SocksClient final : public std::enable_shared_from_this<SocksClient>
     assert(tcp_pcb);
 
     tcp_close(tcp_pcb);
-    tcp_pcb = nullptr;
+
+    close_in_progress = true;
+    socket.cancel();
+    socket.close();
   }
 
   /// Same as connection_hard_abort, but can be used in the
@@ -111,8 +116,9 @@ class SocksClient final : public std::enable_shared_from_this<SocksClient>
     socket.close(ec);
 
     if (tcp_pcb) {
-      tcp_abort(tcp_pcb);
+      auto pcb = tcp_pcb;
       tcp_pcb = nullptr;
+      tcp_abort(pcb);
     }
 
     auto *arg = tcp_pcb_arg;
@@ -120,6 +126,7 @@ class SocksClient final : public std::enable_shared_from_this<SocksClient>
       tcp_pcb_arg = nullptr;
       delete arg;
     }
+
   }
 
   /// Tells lwIP to abort the connection. If this is called from lwip
@@ -142,15 +149,25 @@ class SocksClient final : public std::enable_shared_from_this<SocksClient>
     // space we don't have.
     assert(len <= tcp_sndbuf(tcp_pcb));
 
-    err_t err = tcp_write(tcp_pcb, rcv_buffer.data(), len, 0);
-    if (err != ERR_OK) {
-      LOG(ERROR) << "Couldn't send. tcp_write() returned: " << int(err);
+    if (len) {
+      err_t err = tcp_write(tcp_pcb, rcv_buffer.data(), len, 0);
+      if (err != ERR_OK) {
+        LOG(ERROR) << "Couldn't send. tcp_write() returned: " << int(err);
+        return;
+      }
+    }
+
+    if (close_in_progress) {
+      LOG(INFO) << "Stop waiting for data from SOCKS client.";
       return;
     }
 
     if (error == asio::error_code(asio::error::misc_errors::eof)) {
-      LOG(ERROR) << "EOF. Closing connection.";
+      LOG(INFO) << "EOF. Closing connection.";
       connection_close();
+      return;
+    } else if (error == asio::error_code(asio::error::operation_aborted)) {
+      LOG(ERROR) << "async_read aborted.";
       return;
     } else if (error) {
       LOG(ERROR) << "Error while receiving data from SOCKS client: " << error.message();
@@ -167,7 +184,6 @@ class SocksClient final : public std::enable_shared_from_this<SocksClient>
       // Wait for more data.
       auto self = shared_from_this();
       async_read_in_progress = true;
-      LOG(INFO) << "**** async_read(" << buflen <<") ****" << std::this_thread::get_id();
       asio::async_read(socket, asio::buffer(rcv_buffer.begin(), buflen),
                        ASIO_CB_SHARED(self, data_received_cb));
     }
@@ -210,9 +226,8 @@ class SocksClient final : public std::enable_shared_from_this<SocksClient>
 
   err_t lwip_tcp_sent_cb(struct tcp_pcb *pcb, uint16_t len)
   {
-    assert(pcb == tcp_pcb);
-
     LOG(INFO) << "Remote ACK'd " << int(len) << " bytes.";
+    assert(pcb == tcp_pcb);
 
     // If there is an async_read in progress, we don't need to do
     // anything here, because when it is done, it will program a new
@@ -222,16 +237,13 @@ class SocksClient final : public std::enable_shared_from_this<SocksClient>
     // Also make sure this is called from our IO thread, otherwise
     // this will race.
 
-    auto self = shared_from_this();
-    io_service.post([this, self] () {
-        if (not async_read_in_progress) {
-          LOG(INFO) << "Starting new async_read, because none was in progress.";
-          asio::error_code ec;
-          data_received_cb(ec, 0);
-        } else {
-          LOG(INFO) << "Not starting new async_read.";
-        }
-      });
+    if (not async_read_in_progress) {
+      LOG(INFO) << "Starting new async_read, because none was in progress.";
+      asio::error_code ec;
+      data_received_cb(ec, 0);
+    } else {
+      LOG(INFO) << "Not starting new async_read.";
+    }
 
     return ERR_OK;
   }
@@ -246,10 +258,9 @@ class SocksClient final : public std::enable_shared_from_this<SocksClient>
   {
     LOG(ERROR) << "Error callback from lwIP: '" << lwip_strerr(err) << "' " << int(err);
 
-    // XXX Not sure whether this leaks memory.
-    tcp_pcb = nullptr;
-
-    connection_hard_abort();
+    if (tcp_pcb) {
+      connection_hard_abort();
+    }
   }
 
   static void static_lwip_err_cb(void *arg, err_t err)
