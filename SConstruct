@@ -1,7 +1,6 @@
 # -*- Mode: Python -*-
 
 env = Environment(
-    CPPFLAGS = ' -DASIO_STANDALONE',
     CPPPATH = ['.',
                'asio/asio/include',
                'lwip-contrib/ports/unix/include',
