@@ -1,0 +1,28 @@
+openconnect sets the following environment variables when it starts
+the script:
+
+CISCO_CSTP_OPTIONS=X-CSTP-Version=1
+X-CSTP-Protocol=Copyright (c) 2004 Cisco Systems, Inc.
+X-CSTP-Address=a.b.c.d
+X-CSTP-Netmask=255.255.252.0
+X-CSTP-Hostname=gateway.example.com
+X-CSTP-DNS=a.b.c.d
+X-CSTP-DNS=a.b.c.d
+X-CSTP-Lease-Duration=43200
+X-CSTP-Session-Timeout=43200
+X-CSTP-Idle-Timeout=28800
+X-CSTP-Disconnected-Timeout=28800
+X-CSTP-Default-Domain=example.com
+X-CSTP-Keep=true
+X-CSTP-Tunnel-All-DNS=false
+X-CSTP-DPD=30
+X-CSTP-Keepalive=20
+X-CSTP-MSIE-Proxy-Lockdown=true
+X-CSTP-Smartcard-Removal-Disconnect=true
+X-CSTP-MTU=1406
+X-CSTP-Routing-Filtering-Ignore=false
+X-CSTP-Quarantine=false
+X-CSTP-Disable-Always-On-VPN=false
+X-CSTP-Client-Bypass-Protocol=false
+X-CSTP-TCP-Keepalive=true
+X-CSTP-Post-Auth-XML=some xml
