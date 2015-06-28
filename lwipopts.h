@@ -409,7 +409,7 @@
 
 /* Misc */
 
-/* #define LWIP_DEBUG 1 */
+#define LWIP_DEBUG 1
 /* #define LWIP_DBG_TYPES_ON LWIP_DBG_TRACE */
 /* #define LWIP_DBG_MIN_LEVEL LWIP_DBG_LEVEL_ALL */
 /* #define PBUF_DEBUG LWIP_DBG_ON */

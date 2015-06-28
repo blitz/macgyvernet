@@ -1,5 +1,6 @@
 #include <iostream>
 #include <asio.hpp>
+#include <thread>
 #include <glog/logging.h>
 
 #include <lwip/tcpip.h>
@@ -61,6 +62,9 @@ class SocksClient final : public std::enable_shared_from_this<SocksClient>
   // Contains incoming packet data
   std::array<uint8_t, 1 << 16> rcv_buffer;
 
+  // IF true, an async_read is in progress.
+  bool async_read_in_progress = false;
+
   static const char *command_string(COMMAND c)
   {
     switch (c) {
@@ -91,6 +95,13 @@ class SocksClient final : public std::enable_shared_from_this<SocksClient>
     LOG(ERROR) << "XXX Implement connect by name";
   }
 
+  void connection_close()
+  {
+    assert(tcp_pcb);
+
+    tcp_close(tcp_pcb);
+    tcp_pcb = nullptr;
+  }
 
   /// Same as connection_hard_abort, but can be used in the
   /// destructor.
@@ -123,20 +134,43 @@ class SocksClient final : public std::enable_shared_from_this<SocksClient>
 
   void data_received_cb(const asio::error_code &error, size_t len)
   {
-    LOG(ERROR) << "Dropping " << len << " bytes.";
+    async_read_in_progress = false;
 
-    // XXX When we get EOF, shutdown the TCP connection gracefully.
+    LOG(INFO) << "Received " << len << " bytes from SOCKS client. sndbuf is " << tcp_sndbuf(tcp_pcb);
 
-    if (error) {
-      LOG(ERROR) << "Error while receiving data: " << error.message();
+    // This can only happen if we start asynchronous reads for sndbuf
+    // space we don't have.
+    assert(len <= tcp_sndbuf(tcp_pcb));
+
+    err_t err = tcp_write(tcp_pcb, rcv_buffer.data(), len, 0);
+    if (err != ERR_OK) {
+      LOG(ERROR) << "Couldn't send. tcp_write() returned: " << int(err);
+      return;
+    }
+
+    if (error == asio::error_code(asio::error::misc_errors::eof)) {
+      LOG(ERROR) << "EOF. Closing connection.";
+      connection_close();
+      return;
+    } else if (error) {
+      LOG(ERROR) << "Error while receiving data from SOCKS client: " << error.message();
+      // XXX When we get EOF, shutdown the TCP connection gracefully.
       connection_hard_abort();
       return;
     }
 
-    // Wait for more data.
-    auto self = shared_from_this();
-    asio::async_read(socket, asio::buffer(rcv_buffer.begin(), rcv_buffer.size()),
-                     ASIO_CB_SHARED(self, data_received_cb));
+    // New async read with as many bytes as we can actually send.
+    size_t buflen = std::min<size_t>(rcv_buffer.size(), tcp_sndbuf(tcp_pcb));
+    LOG(INFO) << "Can send " << buflen << " bytes.";
+
+    if (buflen) {
+      // Wait for more data.
+      auto self = shared_from_this();
+      async_read_in_progress = true;
+      LOG(INFO) << "**** async_read(" << buflen <<") ****" << std::this_thread::get_id();
+      asio::async_read(socket, asio::buffer(rcv_buffer.begin(), buflen),
+                       ASIO_CB_SHARED(self, data_received_cb));
+    }
   }
 
   void connect_success_written_cb(const asio::error_code &error, size_t)
@@ -174,21 +208,60 @@ class SocksClient final : public std::enable_shared_from_this<SocksClient>
     return ERR_OK;
   }
 
+  err_t lwip_tcp_sent_cb(struct tcp_pcb *pcb, uint16_t len)
+  {
+    assert(pcb == tcp_pcb);
+
+    LOG(INFO) << "Remote ACK'd " << int(len) << " bytes.";
+
+    // If there is an async_read in progress, we don't need to do
+    // anything here, because when it is done, it will program a new
+    // read. If there is no read in progress, we need to start a new
+    // one here.
+    //
+    // Also make sure this is called from our IO thread, otherwise
+    // this will race.
+
+    auto self = shared_from_this();
+    io_service.post([this, self] () {
+        if (not async_read_in_progress) {
+          LOG(INFO) << "Starting new async_read, because none was in progress.";
+          asio::error_code ec;
+          data_received_cb(ec, 0);
+        } else {
+          LOG(INFO) << "Not starting new async_read.";
+        }
+      });
+
+    return ERR_OK;
+  }
+
   static err_t static_lwip_connected_cb(void *arg, struct tcp_pcb *pcb, err_t err)
   {
     auto *wrap = static_cast<PointerWrap *>(arg);
     return wrap->ptr->lwip_connected_cb(pcb, err);
   }
 
+  void lwip_err_cb(err_t err)
+  {
+    LOG(ERROR) << "Error callback from lwIP: '" << lwip_strerr(err) << "' " << int(err);
+
+    // XXX Not sure whether this leaks memory.
+    tcp_pcb = nullptr;
+
+    connection_hard_abort();
+  }
+
   static void static_lwip_err_cb(void *arg, err_t err)
   {
     auto *wrap = static_cast<PointerWrap *>(arg);
-    LOG(ERROR) << "Error callback from lwIP: " << err;
+    wrap->ptr->lwip_err_cb(err);
+  }
 
-    // XXX Not sure whether this leaks memory.
-    wrap->ptr->tcp_pcb = nullptr;
-
-    wrap->ptr->connection_hard_abort();
+  static err_t static_lwip_tcp_sent_cb(void *arg, struct tcp_pcb *pcb, uint16_t len)
+  {
+    auto *wrap = static_cast<PointerWrap *>(arg);
+    return wrap->ptr->lwip_tcp_sent_cb(pcb, len);
   }
 
   /// Allocate a lwIP PCB and configure it with handler functions.
@@ -204,7 +277,9 @@ class SocksClient final : public std::enable_shared_from_this<SocksClient>
     // client alive as long as lwIP has the connection open.
     tcp_pcb_arg = new PointerWrap { shared_from_this() };
 
-    tcp_arg(tcp_pcb, tcp_pcb_arg);
+    tcp_arg (tcp_pcb, tcp_pcb_arg);
+    tcp_err (tcp_pcb, static_lwip_err_cb);
+    tcp_sent(tcp_pcb, static_lwip_tcp_sent_cb);
 
     return true;
   }
@@ -224,7 +299,7 @@ class SocksClient final : public std::enable_shared_from_this<SocksClient>
     err_t err = tcp_connect(tcp_pcb, &ip_addr, port, static_lwip_connected_cb);
 
     if (err != ERR_OK) {
-      LOG(ERROR) << "tcp_connect failed with " << int(err);
+      LOG(ERROR) << "tcp_connect failed with " << lwip_strerr(err) << " " << int(err);
       connection_hard_abort();
     }
   }

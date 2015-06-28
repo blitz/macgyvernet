@@ -98,18 +98,22 @@ class TunInterface : public netif {
     return ERR_OK;
   }
 
-  err_t packet_output(netif *netif, pbuf *p, ip_addr_t *ipaddr)
+  err_t packet_output(netif *netif, pbuf *p, ip_addr_t const *ipaddr)
   {
     CHECK_EQ(netif, this);
-    LOG(INFO) << "lwIP sends!";
-
-    // We need a linear pbuf.
-    assert(p->next == nullptr);
 
     // Mark buffer as still being in use.
     pbuf_ref(p);
 
-    asio::async_write(tun_fd, asio::buffer(p->payload, p->len),
+    std::vector<asio::const_buffer> gather_list;
+
+    for (pbuf *c = p; c; c = c->next) {
+      gather_list.emplace_back(c->payload, c->len);
+    }
+
+    LOG(INFO) << "lwIP sends " << int(p->tot_len) << " bytes in " << gather_list.size() << " buffers.";
+
+    asio::async_write(tun_fd, gather_list,
                       [p] (const asio::error_code &error, size_t len) {
                         if (error) {
                           LOG(ERROR) << "Error while sending packet: " << error;
@@ -132,7 +136,7 @@ public:
     return static_cast<TunInterface *>(netif)->netif_init();
   }
 
-  static err_t static_packet_output(netif *netif, pbuf *p, ip_addr_t *ipaddr)
+  static err_t static_packet_output(netif *netif, pbuf *p, ip_addr_t const *ipaddr)
   {
     return static_cast<TunInterface *>(netif)->packet_output(netif, p, ipaddr);
   }
@@ -166,13 +170,14 @@ void initialize_backend(asio::io_service &io)
 
       IP4_ADDR(&gw, 10,0,0,1);
       IP4_ADDR(&ipaddr, 10,0,0,100);
-      IP4_ADDR(&netmask, 255,255,255,255);
+      IP4_ADDR(&netmask, 255,0,0,0);
 
       netif_add(tunif, &ipaddr, &netmask, &gw, tunif,
                 &TunInterface::static_netif_init, tcpip_input);
 
       netif_set_default(tunif);
       netif_set_up(tunif);
+      netif_set_link_up(tunif);
 
       tunif->start_timer();
 
