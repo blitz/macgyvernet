@@ -1,4 +1,5 @@
 *~
 *.o
 /macgyvernet
-.scons*
+/.scon*
+/config.log
