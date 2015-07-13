@@ -101,7 +101,15 @@ class SocksClient final : public std::enable_shared_from_this<SocksClient>
   {
     assert(tcp_pcb);
 
+    tcp_arg (tcp_pcb, nullptr);
+    tcp_err (tcp_pcb, nullptr);
+    tcp_sent(tcp_pcb, nullptr);
+
+    /// XXX How do we make sure that noone touches rcv_buffer after
+    /// this SocksClient instance has been destroyed?
     tcp_close(tcp_pcb);
+
+    tcp_pcb = nullptr;
 
     close_in_progress = true;
     socket.cancel();
@@ -150,7 +158,8 @@ class SocksClient final : public std::enable_shared_from_this<SocksClient>
     assert(len <= tcp_sndbuf(tcp_pcb));
 
     if (len) {
-      err_t err = tcp_write(tcp_pcb, rcv_buffer.data(), len, 0);
+      // We pass the copy flag to avoid lwIP touch rcv_buffer, after we've destrpyed this instance.
+      err_t err = tcp_write(tcp_pcb, rcv_buffer.data(), len, TCP_WRITE_FLAG_COPY);
       if (err != ERR_OK) {
         LOG(ERROR) << "Couldn't send. tcp_write() returned: " << int(err);
         return;
