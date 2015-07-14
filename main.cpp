@@ -105,11 +105,12 @@ class SocksClient final : public std::enable_shared_from_this<SocksClient>
     tcp_err (tcp_pcb, nullptr);
     tcp_sent(tcp_pcb, nullptr);
 
+    auto old_tcp_pcb = tcp_pcb;
+    tcp_pcb = nullptr;
+
     /// XXX How do we make sure that noone touches rcv_buffer after
     /// this SocksClient instance has been destroyed?
-    tcp_close(tcp_pcb);
-
-    tcp_pcb = nullptr;
+    tcp_close(old_tcp_pcb);
 
     close_in_progress = true;
     socket.cancel();
