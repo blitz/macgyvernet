@@ -2,8 +2,8 @@
 
 env = Environment(
     CPPPATH = ['.',
+               'include',
                'asio/asio/include',
-               'lwip-contrib/ports/unix/include',
                'lwip/src/include',
                'lwip/src/include/ipv4',
                ],
@@ -30,7 +30,6 @@ env = conf.Finish()
 
 env.Program('macgyvernet',
             Glob('*.cpp') +
-            ['lwip-contrib/ports/unix/sys_arch.c'] +
             Glob('lwip/src/core/*.c') +
             Glob('lwip/src/core/ipv4/*.c') +
             Glob('lwip/src/api/*.c') +
